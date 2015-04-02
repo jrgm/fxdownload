@@ -4,7 +4,11 @@
   "description": "Simple fetch/unpack of Linux Firefox channel builds",
   "main": "index.js",
   "author": "John Morrison <jrgmorrison@gmail.com",
-  "license": "WTFPL",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jrgm/fxdownload.git"
+  },
   "dependencies": {
     "cheerio": "0.19.0",
     "commander": "2.7.1",
