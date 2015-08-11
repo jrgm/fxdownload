@@ -16,27 +16,30 @@ const request = require('request').defaults({ strictSSL: true })
 const temp = require('temp').track()
 
 var channelMap = {
+  esr: 'latest-esr',
   release: 'latest',
   beta: 'latest-beta',
-  esr: 'latest-esr'
+  aurora: 'latest-mozilla-aurora',
+  nightly: 'latest-trunk'
 }
 
 var extensionMap = {
-  'linux-x86_64': '.tar.bz2',
-  'linux-i686': '.tar.bz2',
-  'mac': '.dmg',
-  'win32': '.exe',
-  'win64': '.exe'
+  'linux-x86_64': /\.tar\.bz2$/,
+  'linux-i686': /\.tar\.bz2$/,
+  'mac': /\.dmg$/,
+  'win32': /\.exe$/,
+  'win64': /\.exe$/
 }
 
 function options() {
   program
     .option('-c, --channel [channel]',
-            'Release channel [release, beta, esr]',
-            /^(release|beta|esr)$/,
+            'Release channel [release, beta, esr, aurora, nightly]',
+            /^(release|beta|esr|aurora|nightly)$/,
             'release')
     .option('-i, --install-dir <path>',
-            'Destination install directory')
+            'Destination install directory',
+	          path.join(process.env.HOME, 'firefox-channels'))
     .option('-p, --platform [platform]',
             'Operating system [linux-x86_64, linux-i686, mac, win32, win64]',
             /^(linux-x86_64|linux-i686|mac|win32|win64)$/,
@@ -44,7 +47,6 @@ function options() {
     .option('-l, --locale [name]', 'Locale', 'en-US')
     .parse(process.argv);
 
-  program.channel = channelMap[program.channel]
   program.isLinux = program.platform.match(/^linux/i)
   program.tmpFile = temp.path({ prefix: 'fxdownload-' });
 }
@@ -53,19 +55,20 @@ function parseFilename(body) {
   var fileExtension = extensionMap[program.platform]
   var $ = cheerio.load(body)
 
+  var isReleaseBuild = isReleasePath(program.channel)
+
   var available = $('td a[href]').get()
-      .filter(
-        function(elt) {
-          return elt.attribs.href.indexOf(fileExtension) !== -1
-        }
-      )
       .map(
         function(elt) {
           return elt.attribs.href
         }
+      ).filter(
+        function(href) {
+          return fileExtension.test(href)
+        }
       ).sort()
 
-  if (available.length > 1) {
+  if (available.length > 1 && isReleaseBuild) {
     throw new Error('Multiple possible downloads:' + JSON.stringify(available))
   }
 
@@ -73,7 +76,18 @@ function parseFilename(body) {
     throw new Error('No download available:' + JSON.stringify(available))
   }
 
-  return available.pop()
+  if (isReleaseBuild) {
+    return available.pop()
+  }
+
+  // The nightly and aurora builds encode locale and platform into the
+  // filename, and put them all in one directory. Find the highest numbered
+  // version that matches the platform and locale.
+  return available.filter(function(href) {
+    return (href.match(program.platform) &&
+            href.match(program.locale) &&
+            !href.match('sdk'))
+  }).sort().pop()
 }
 
 function ondownload() {
@@ -84,19 +98,20 @@ function ondownload() {
 
   var oncomplete = function oncomplete (err) {
     if (err) throw err
+
     mkdirp.sync(program.installDir)
-    mkdirp.sync(path.join(program.installDir, program.channel))
-    var targetDir = path.join(program.installDir, program.channel, program.locale)
+    mkdirp.sync(path.join(program.installDir, channelMap[program.channel]))
+
+    var targetDir = path.join(program.installDir, channelMap[program.channel], program.locale)
     rimraf.sync(targetDir) // we want to overwrite with the latest available
+
     fs.renameSync(tmpDir, targetDir)
     fs.chmodSync(program.installDir, 0755)
     fs.chmodSync(targetDir, 0755)
-    fs.unlinkSync(program.tmpFile)   
-    console.log('Unpacked successfully in', targetDir)
-  }
+    fs.unlinkSync(program.tmpFile)
 
-  console.log(util.format('Unpacking %s into %s',
-                          program.tmpFile, program.installDir))
+    console.log('Unpacked %s successfully in %s', program.tmpFile, targetDir)
+  }
 
   if (!program.isLinux) {
     // For mac and windows we don't unpack the download
@@ -113,15 +128,24 @@ function ondownload() {
     .run(oncomplete)
 }
 
+function isReleasePath(channel) {
+  return [ 'nightly', 'aurora' ].indexOf(channel) === -1
+}
+
 function run() {
   options()
 
-  var releaseUrl = 'http://ftp.mozilla.org/pub/mozilla.org/firefox/releases/%s/%s/%s/'
-  releaseUrl = util.format(releaseUrl, program.channel, program.platform, program.locale)
+  var buildsUrl = 'https://ftp.mozilla.org/pub/mozilla.org/firefox/'
+  var releasePath = 'releases/%s/%s/%s/'
+  var nightlyPath = 'nightly/%s/'
 
-  console.log('Looking for downloads at', releaseUrl)
+  var nightlyUrl = util.format(buildsUrl + nightlyPath, channelMap[program.channel])
+  var releaseUrl = util.format(buildsUrl + releasePath, channelMap[program.channel],
+                               program.platform, program.locale)
 
-  request.get(releaseUrl, function(err, res, body) {
+  var downloadUrl = isReleasePath(program.channel) ? releaseUrl  : nightlyUrl
+
+  request.get(downloadUrl, function(err, res, body) {
     if (err) {
       return console.error(err)
     }
@@ -131,13 +155,10 @@ function run() {
     }
 
     var filename = parseFilename(body)
-    var url = util.format(releaseUrl + '%s', filename)
+    var url = util.format(downloadUrl + '%s', filename)
     console.log('Starting download of:', url)
 
     request(url)
-      .on('response', function(response) {
-        console.log('Download started')
-      })
       .on('error', function(err) {
         console.log(err)
       })
