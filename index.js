@@ -11,16 +11,21 @@ const cheerio = require('cheerio')
 const decompress = require('decompress');
 const program = require('commander')
 const mkdirp = require('mkdirp')
+const P = require('bluebird')
 const rimraf = require('rimraf')
 const request = require('request').defaults({ strictSSL: true })
 const temp = require('temp').track()
 
-var channelMap = {
-  esr: 'latest-esr',
-  release: 'latest',
-  beta: 'latest-beta',
-  aurora: 'latest-mozilla-aurora',
-  nightly: 'latest-trunk'
+function channelMap(channel, file) {
+  // a convenience for not naming 'latest-mozilla-aurora' as file path
+  var map = {
+    esr: 'latest-esr',
+    release: 'latest',
+    beta: 'latest-beta',
+    aurora: file ? 'latest-aurora' : 'latest-mozilla-aurora',
+    nightly: file ? 'latest-nightly' : 'latest-trunk'
+  }
+  return map[channel]
 }
 
 var extensionMap = {
@@ -35,45 +40,47 @@ function options() {
   program
     .option('-c, --channel [channel]',
             'Release channel [release, beta, esr, aurora, nightly]',
-            /^(release|beta|esr|aurora|nightly)$/,
-            'release')
+            function(list) {
+              return list.split(/,/)
+            })
     .option('-i, --install-dir <path>',
             'Destination install directory',
-	          path.join(process.env.HOME, 'firefox-channels'))
+            path.join(process.env.HOME, 'firefox-channels'))
     .option('-p, --platform [platform]',
             'Operating system [linux-x86_64, linux-i686, mac, win32, win64]',
             /^(linux-x86_64|linux-i686|mac|win32|win64)$/,
             'linux-x86_64')
     .option('-l, --locale [name]', 'Locale', 'en-US')
     .parse(process.argv);
-
-  program.isLinux = program.platform.match(/^linux/i)
-  program.tmpFile = temp.path({ prefix: 'fxdownload-' });
 }
 
-function parseFilename(body) {
-  var fileExtension = extensionMap[program.platform]
+function isReleasePath(channel) {
+  return [ 'nightly', 'aurora' ].indexOf(channel) === -1
+}
+
+function installDir(channel) {
+  return path.join(program.installDir, channelMap(channel, true), program.locale)
+}
+
+function parseFilename(body, channel, locale, platform) {
+  var fileExtension = extensionMap[platform]
   var $ = cheerio.load(body)
 
-  var isReleaseBuild = isReleasePath(program.channel)
-
   var available = $('td a[href]').get()
-      .map(
-        function(elt) {
-          return elt.attribs.href
-        }
-      ).filter(
-        function(href) {
-          return fileExtension.test(href)
-        }
-      ).sort()
-
-  if (available.length > 1 && isReleaseBuild) {
-    throw new Error('Multiple possible downloads:' + JSON.stringify(available))
-  }
+      .map(function(elt) {
+        return elt.attribs.href
+      })
+      .filter(function(href) {
+        return fileExtension.test(href)
+      }).sort()
 
   if (available.length === 0) {
     throw new Error('No download available:' + JSON.stringify(available))
+  }
+
+  var isReleaseBuild = isReleasePath(channel)
+  if (available.length > 1 && isReleaseBuild) {
+    throw new Error('Multiple possible downloads:' + JSON.stringify(available))
   }
 
   if (isReleaseBuild) {
@@ -84,87 +91,97 @@ function parseFilename(body) {
   // filename, and put them all in one directory. Find the highest numbered
   // version that matches the platform and locale.
   return available.filter(function(href) {
-    return (href.match(program.platform) &&
-            href.match(program.locale) &&
+    return (href.match(platform) &&
+            href.match(locale) &&
             !href.match('sdk'))
   }).sort().pop()
 }
 
-function ondownload() {
-  var tmpDir
-  if (program.isLinux) {
-    tmpDir = temp.mkdirSync()
-  }
+function getDownloadUrl(channel, locale, platform) {
+  var buildsUrl = 'https://ftp.mozilla.org/pub/mozilla.org/firefox/'
+  var releasePath = 'releases/%s/%s/%s/'
+  var nightlyPath = 'nightly/%s/'
 
-  var oncomplete = function oncomplete (err) {
-    if (err) throw err
+  var nightlyUrl = util.format(buildsUrl + nightlyPath, channelMap(channel))
+  var releaseUrl = util.format(buildsUrl + releasePath, channelMap(channel),
+                               platform, locale)
 
-    mkdirp.sync(program.installDir)
-    mkdirp.sync(path.join(program.installDir, channelMap[program.channel]))
-
-    var targetDir = path.join(program.installDir, channelMap[program.channel], program.locale)
-    rimraf.sync(targetDir) // we want to overwrite with the latest available
-
-    fs.renameSync(tmpDir, targetDir)
-    fs.chmodSync(program.installDir, 0755)
-    fs.chmodSync(targetDir, 0755)
-    fs.unlinkSync(program.tmpFile)
-
-    console.log('Unpacked %s successfully in %s', program.tmpFile, targetDir)
-  }
-
-  if (!program.isLinux) {
-    // For mac and windows we don't unpack the download
-    mkdirp.sync(program.installDir)
-    fs.renameSync(program.tmpFile, program.installDir)
-    console.log('Download complete. See', program.installDir)
-    return
-  }
-
-  var dc = new decompress({ mode: '755'})
-  dc.src(program.tmpFile)
-    .dest(tmpDir)
-    .use(decompress.tarbz2())
-    .run(oncomplete)
+  return isReleasePath(channel) ? releaseUrl  : nightlyUrl
 }
 
-function isReleasePath(channel) {
-  return [ 'nightly', 'aurora' ].indexOf(channel) === -1
+function start(channel, locale, platform) {
+  var dfd = P.defer()
+
+  var downloadUrl = getDownloadUrl(channel, locale, platform)
+
+  function ondownload(src, filename) {
+    var installdir = installDir(channel)
+    rimraf.sync(installdir) // we want to overwrite with the latest available
+    mkdirp.sync(installdir)
+
+    if (!program.platform.match(/^linux/i)) {
+      // For mac and windows we don't unpack the download
+      fs.renameSync(src, path.join(installdir, filename))
+      console.log('Download complete. See %s', installdir)
+      return dfd.resolve()
+    }
+
+    var dc = new decompress({ mode: '755'})
+    dc.src(src)
+      .dest(installdir)
+      .use(decompress.tarbz2())
+      .run(function(err) {
+        if (err) {
+          return dfd.reject(err)
+        }
+        console.log('Unpacked successfully in %s', installdir)
+        return dfd.resolve()
+      })
+  }
+
+  request.get(downloadUrl, function(err, res, body) {
+    if (err) {
+      return dfd.reject(err)
+    }
+
+    if (res.statusCode !== 200) {
+      return dfd.reject(new Error('Non 200 response: ' + res.statusCode))
+    }
+
+    var filename = parseFilename(body, channel, locale, platform)
+    var url = util.format(downloadUrl + '%s', filename)
+    console.log('Starting download of:', url)
+
+    var writeStream = temp.createWriteStream('fxdownload-')
+    request(url)
+      .on('error', function(err) {
+        return dfd.reject(err)
+      })
+      .on('end', ondownload.bind(null, writeStream.path, filename))
+      .pipe(writeStream)
+  })
+
+  return dfd.promise
 }
 
 function run() {
   options()
 
-  var buildsUrl = 'https://ftp.mozilla.org/pub/mozilla.org/firefox/'
-  var releasePath = 'releases/%s/%s/%s/'
-  var nightlyPath = 'nightly/%s/'
+  var downloads = []
+  var locale = program.locale
+  var platform = program.platform
 
-  var nightlyUrl = util.format(buildsUrl + nightlyPath, channelMap[program.channel])
-  var releaseUrl = util.format(buildsUrl + releasePath, channelMap[program.channel],
-                               program.platform, program.locale)
-
-  var downloadUrl = isReleasePath(program.channel) ? releaseUrl  : nightlyUrl
-
-  request.get(downloadUrl, function(err, res, body) {
-    if (err) {
-      return console.error(err)
-    }
-
-    if (res.statusCode !== 200) {
-      return console.error('Non 200 response:', res.statusCode)
-    }
-
-    var filename = parseFilename(body)
-    var url = util.format(downloadUrl + '%s', filename)
-    console.log('Starting download of:', url)
-
-    request(url)
-      .on('error', function(err) {
-        console.log(err)
-      })
-      .on('end', ondownload)
-      .pipe(fs.createWriteStream(program.tmpFile))
+  program.channel.forEach(function(channel) {
+    downloads.push(start(channel, locale, platform))
   })
+
+  P.all(downloads)
+    .then(function() {
+      console.log('All done.')
+    })
+    .catch(function(err) {
+      console.error(err)
+    })
 }
 
 run()
