@@ -79,9 +79,14 @@ function parseFilename(body, channel, locale, platform) {
   }
 
   var isReleaseBuild = isReleasePath(channel)
+
+  // multiple builds are now in "latest", which breaks the point of latest. 
+  // Okay, just sort them and take "largest".
   if (available.length > 1 && isReleaseBuild) {
-    throw new Error('Multiple possible downloads:' + JSON.stringify(available))
+    console.error('Multiple possible downloads:', JSON.stringify(available))
   }
+
+  available = available.sort()
 
   if (isReleaseBuild) {
     return available.pop()
