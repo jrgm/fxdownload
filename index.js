@@ -5,6 +5,7 @@
 
 const fs = require('fs')
 const path = require('path')
+const url = require('url')
 const util = require('util')
 
 const cheerio = require('cheerio')
@@ -82,16 +83,9 @@ function parseFilename(body, channel, locale, platform) {
 
   // multiple builds are now in "latest", which breaks the point of latest. 
   // Okay, just sort them and take "largest".
-  if (available.length > 1 && isReleaseBuild) {
+  if (available.length > 1) {
     console.error('Multiple possible downloads:', JSON.stringify(available))
   }
-
-  available = available.sort()
-
-  if (isReleaseBuild) {
-    return available.pop()
-  }
-
   // The nightly and aurora builds encode locale and platform into the
   // filename, and put them all in one directory. Find the highest numbered
   // version that matches the platform and locale.
@@ -154,11 +148,11 @@ function start(channel, locale, platform) {
     }
 
     var filename = parseFilename(body, channel, locale, platform)
-    var url = util.format(downloadUrl + '%s', filename)
-    console.log('Starting download of:', url)
+    var targetUrl = url.resolve(downloadUrl, filename)
+    console.log('Starting download of:', targetUrl)
 
     var writeStream = temp.createWriteStream('fxdownload-')
-    request(url)
+    request(targetUrl)
       .on('error', function(err) {
         return dfd.reject(err)
       })
