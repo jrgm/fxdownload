@@ -8,13 +8,13 @@ const path = require('path')
 const url = require('url')
 const util = require('util')
 
-const cheerio = require('cheerio')
-const decompress = require('decompress');
-const program = require('commander')
-const mkdirp = require('mkdirp')
 const P = require('bluebird')
-const rimraf = require('rimraf')
+const cheerio = require('cheerio')
+const decompress = require('decompress')
+const mkdirp = require('mkdirp')
+const program = require('commander')
 const request = require('request').defaults({ strictSSL: true })
+const rimraf = require('rimraf')
 const temp = require('temp').track()
 
 function channelMap(channel, file) {
@@ -52,7 +52,7 @@ function options() {
             /^(linux-x86_64|linux-i686|mac|win32|win64)$/,
             'linux-x86_64')
     .option('-l, --locale [name]', 'Locale', 'en-US')
-    .parse(process.argv);
+    .parse(process.argv)
 }
 
 function isReleasePath(channel) {
