@@ -10,13 +10,13 @@
     "url": "https://github.com/jrgm/fxdownload.git"
   },
   "dependencies": {
-    "bluebird": "2.9.34",
+    "bluebird": "2.10.2",
     "cheerio": "0.19.0",
-    "commander": "2.8.1",
+    "commander": "2.9.0",
     "decompress": "2.3.0",
     "mkdirp": "0.5.1",
-    "request": "2.60.0",
-    "rimraf": "2.4.2",
+    "request": "2.65.0",
+    "rimraf": "2.4.3",
     "temp": "0.8.3"
   }
 }
