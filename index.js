@@ -76,7 +76,8 @@ function parseFilename(body, channel, locale, platform) {
       }).sort()
 
   if (available.length === 0) {
-    throw new Error('No download available:' + JSON.stringify(available))
+    throw new Error(util.format('No download available: %s %s %s', 
+                                channel, locale, platform))
   }
 
   var isReleaseBuild = isReleasePath(channel)
@@ -144,7 +145,7 @@ function start(channel, locale, platform) {
     }
 
     if (res.statusCode !== 200) {
-      throw new Error('Non 200 response: ' + res.statusCode)
+      throw new Error('Non 200 response: ' + res.statusCode + ' ' + downloadUrl)
     }
 
     var filename = parseFilename(body, channel, locale, platform)
