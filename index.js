@@ -80,13 +80,12 @@ function parseFilename(body, channel, locale, platform) {
                                 channel, locale, platform))
   }
 
-  var isReleaseBuild = isReleasePath(channel)
-
   // multiple builds are now in "latest", which breaks the point of latest. 
   // Okay, just sort them and take "largest".
   if (available.length > 1) {
     console.error('Multiple possible downloads:', JSON.stringify(available))
   }
+
   // The nightly and aurora builds encode locale and platform into the
   // filename, and put them all in one directory. Find the highest numbered
   // version that matches the platform and locale.
