@@ -76,14 +76,15 @@ function parseFilename(body, channel, locale, platform) {
       }).sort()
 
   if (available.length === 0) {
-    throw new Error(util.format('No download available: %s %s %s', 
+    throw new Error(util.format('No download available: %s %s %s',
                                 channel, locale, platform))
   }
 
-  // multiple builds are now in "latest", which breaks the point of latest. 
+  // multiple builds are now in "latest", which breaks the point of latest.
   // Okay, just sort them and take "largest".
   if (available.length > 1) {
-    console.error('Multiple possible downloads:', JSON.stringify(available))
+    console.warn('Multiple possible downloads:',
+                 JSON.stringify(available.sort(), null, 2))
   }
 
   // The nightly and aurora builds encode locale and platform into the
