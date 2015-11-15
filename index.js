@@ -144,7 +144,7 @@ function start(channel, locale, platform) {
     }
 
     if (res.statusCode !== 200) {
-      return dfd.reject(new Error('Non 200 response: ' + res.statusCode))
+      throw new Error('Non 200 response: ' + res.statusCode)
     }
 
     var filename = parseFilename(body, channel, locale, platform)
