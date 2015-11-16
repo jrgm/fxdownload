@@ -1,5 +1,5 @@
 
-  Usage: index [options]
+  Usage: fetch [options]
 
   Options:
 

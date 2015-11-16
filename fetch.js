@@ -3,16 +3,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// NOTE: this version has been obsoleted by changes to move storage to AWS S3. 
-// See ./fetch.js for a version that downloads via a CDN.
-
 const fs = require('fs')
 const path = require('path')
 const url = require('url')
 const util = require('util')
 
 const P = require('bluebird')
-const cheerio = require('cheerio')
 const decompress = require('decompress')
 const mkdirp = require('mkdirp')
 const program = require('commander')
@@ -21,23 +17,25 @@ const rimraf = require('rimraf')
 const temp = require('temp').track()
 
 function channelMap(channel, file) {
-  // a convenience for not naming 'latest-mozilla-aurora' as file path
   var map = {
-    esr: 'latest-esr',
-    release: 'latest',
-    beta: 'latest-beta',
-    aurora: file ? 'latest-aurora' : 'latest-mozilla-aurora',
-    nightly: file ? 'latest-nightly' : 'latest-trunk'
+    esr:     file ? 'latest-esr'     : 'firefox-esr-latest',
+    release: file ? 'latest'         : 'firefox-latest',
+    beta:    file ? 'latest-beta'    : 'firefox-beta-latest',
+    aurora:  file ? 'latest-aurora'  : 'firefox-aurora-latest',
+    nightly: file ? 'latest-nightly' : 'firefox-nightly-latest'
   }
   return map[channel]
 }
 
-var extensionMap = {
-  'linux-x86_64': /\.tar\.bz2$/,
-  'linux-i686': /\.tar\.bz2$/,
-  'mac': /\.dmg$/,
-  'win32': /\.exe$/,
-  'win64': /\.exe$/
+function platformMap(platform) {
+  var map = {
+    'linux-x86_64': 'linux64',
+    'linux-i686': 'linux',
+    'mac': 'mac',
+    'win32': 'win',
+    'win64': 'win64'
+  }
+  return map[platform]
 }
 
 function options() {
@@ -58,58 +56,13 @@ function options() {
     .parse(process.argv)
 }
 
-function isReleasePath(channel) {
-  return [ 'nightly', 'aurora' ].indexOf(channel) === -1
-}
-
 function installDir(channel) {
   return path.join(program.installDir, channelMap(channel, true), program.locale)
 }
 
-function parseFilename(body, channel, locale, platform) {
-  var fileExtension = extensionMap[platform]
-  var $ = cheerio.load(body)
-
-  var available = $('td a[href]').get()
-      .map(function(elt) {
-        return elt.attribs.href
-      })
-      .filter(function(href) {
-        return fileExtension.test(href)
-      }).sort()
-
-  if (available.length === 0) {
-    throw new Error(util.format('No download available: %s %s %s',
-                                channel, locale, platform))
-  }
-
-  // multiple builds are now in "latest", which breaks the point of latest.
-  // Okay, just sort them and take "largest".
-  if (available.length > 1) {
-    console.warn('Multiple possible downloads:',
-                 JSON.stringify(available.sort(), null, 2))
-  }
-
-  // The nightly and aurora builds encode locale and platform into the
-  // filename, and put them all in one directory. Find the highest numbered
-  // version that matches the platform and locale.
-  return available.filter(function(href) {
-    return (href.match(platform) &&
-            href.match(locale) &&
-            !href.match('sdk'))
-  }).sort().pop()
-}
-
 function getDownloadUrl(channel, locale, platform) {
-  var buildsUrl = 'https://ftp.mozilla.org/pub/mozilla.org/firefox/'
-  var releasePath = 'releases/%s/%s/%s/'
-  var nightlyPath = 'nightly/%s/'
-
-  var nightlyUrl = util.format(buildsUrl + nightlyPath, channelMap(channel))
-  var releaseUrl = util.format(buildsUrl + releasePath, channelMap(channel),
-                               platform, locale)
-
-  return isReleasePath(channel) ? releaseUrl  : nightlyUrl
+  return  util.format('https://download.mozilla.org/?product=%s&os=%s&lang=%s', 
+                      channelMap(channel), platform, locale)
 }
 
 function start(channel, locale, platform) {
@@ -142,18 +95,24 @@ function start(channel, locale, platform) {
       })
   }
 
-  request.get(downloadUrl, function(err, res, body) {
+  console.log('Looking for redirect from:', downloadUrl)
+  var options = { uri: downloadUrl, followRedirect: false }
+  request.get(options, function(err, res, body) {
     if (err) {
       return dfd.reject(err)
     }
 
-    if (res.statusCode !== 200) {
-      throw new Error('Non 200 response: ' + res.statusCode + ' ' + downloadUrl)
+    if (res.statusCode !== 302) {
+      throw new Error('Non 302 response: ' + res.statusCode + ' ' + downloadUrl)
     }
 
-    var filename = parseFilename(body, channel, locale, platform)
-    var targetUrl = url.resolve(downloadUrl, filename)
+    var targetUrl = res.headers.location
+    if (!targetUrl) {
+      throw new Error('Could not find target url: ' + res.statusCode + ' ' + 
+                      JSON.stringify(res.headers.sort(), null, 2))
+    }
     console.log('Starting download of:', targetUrl)
+    var filename = path.basename(url.parse(targetUrl).pathname)
 
     var writeStream = temp.createWriteStream('fxdownload-')
     request(targetUrl)
@@ -168,13 +127,11 @@ function start(channel, locale, platform) {
 }
 
 function run() {
-  console.warn('NOTE: this version is obsolete. See ./fetch.js')
-
   options()
 
   var downloads = []
   var locale = program.locale
-  var platform = program.platform
+  var platform = platformMap(program.platform)
 
   program.channel.forEach(function(channel) {
     downloads.push(start(channel, locale, platform))

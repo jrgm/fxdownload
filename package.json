@@ -2,7 +2,7 @@
   "name": "fxdownload",
   "version": "1.0.0",
   "description": "Simple fetch/unpack of Linux Firefox channel builds",
-  "main": "index.js",
+  "main": "fetch.js",
   "author": "John Morrison <jrgmorrison@gmail.com",
   "license": "MIT",
   "repository": {
