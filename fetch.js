@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 const fs = require('fs')
+const crypto = require('crypto')
 const path = require('path')
 const url = require('url')
 const util = require('util')
@@ -54,6 +55,24 @@ function options() {
             'linux-x86_64')
     .option('-l, --locale [name]', 'Locale', 'en-US')
     .parse(process.argv)
+}
+
+function md5sum(filename, cb) {
+  var md5sum = crypto.createHash('md5')
+  var stream = fs.createReadStream(filename)
+
+  stream.on('data', function(data) {
+    md5sum.update(data)
+  })
+
+  stream.on('error', function(error) {
+    return cb(error)
+  })
+
+  stream.on('end', function() {
+    var digest = md5sum.digest('hex')
+    return cb(null, digest)
+  })
 }
 
 function installDir(channel) {
@@ -111,11 +130,24 @@ function start(channel, locale, platform) {
       throw new Error('Could not find target url: ' + res.statusCode + ' ' + 
                       JSON.stringify(res.headers.sort(), null, 2))
     }
+
+    console.log('Checking ETag of:', targetUrl)
+    request.head(options, function(err, res, body) {
+      if (err) {
+        return dfd.reject(err)
+      }
+
+      if (res.statusCode !== 200) {
+        throw new Error('Non 200 response: ' + res.statusCode + ' ' + downloadUrl)
+      }
+
+
+
     console.log('Starting download of:', targetUrl)
     var filename = path.basename(url.parse(targetUrl).pathname)
 
     var writeStream = temp.createWriteStream('fxdownload-')
-    request(targetUrl)
+    request.get(targetUrl)
       .on('error', function(err) {
         return dfd.reject(err)
       })
