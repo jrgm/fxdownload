@@ -24,14 +24,14 @@ function channelMap(channel, file) {
     aurora:  file ? 'latest-aurora'  : 'firefox-aurora-latest',
     nightly: file ? 'latest-nightly' : 'firefox-nightly-latest'
   }
-  return map[channel]
+  return map[channel] || 'firefox-' + channel;
 }
 
 function platformMap(platform) {
   var map = {
     'linux-x86_64': 'linux64',
     'linux-i686': 'linux',
-    'mac': 'mac',
+    'mac': 'osx',
     'win32': 'win',
     'win64': 'win64'
   }
@@ -61,7 +61,7 @@ function installDir(channel) {
 }
 
 function getDownloadUrl(channel, locale, platform) {
-  return  util.format('https://download.mozilla.org/?product=%s&os=%s&lang=%s', 
+  return  util.format('https://download.mozilla.org/?product=%s&os=%s&lang=%s',
                       channelMap(channel), platform, locale)
 }
 
@@ -108,7 +108,7 @@ function start(channel, locale, platform) {
 
     var targetUrl = res.headers.location
     if (!targetUrl) {
-      throw new Error('Could not find target url: ' + res.statusCode + ' ' + 
+      throw new Error('Could not find target url: ' + res.statusCode + ' ' +
                       JSON.stringify(res.headers.sort(), null, 2))
     }
     console.log('Starting download of:', targetUrl)
