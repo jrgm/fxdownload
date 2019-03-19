@@ -82,16 +82,12 @@ function start(channel, locale, platform) {
       return dfd.resolve()
     }
 
-    var dc = new decompress({ mode: '755'})
-    dc.src(src)
-      .dest(installdir)
-      .use(decompress.tarbz2())
-      .run(function(err) {
-        if (err) {
-          return dfd.reject(err)
-        }
+    return decompress(src, installdir)
+      .then((files) => {
         console.log('Unpacked successfully in %s', installdir)
         return dfd.resolve()
+      }).catch((err) => {
+        return dfd.reject(err)
       })
   }
 
